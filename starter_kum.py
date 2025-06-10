@@ -1,9 +1,22 @@
+def dir_link():
+    """возвращает абсолютный путь
+    """
+    import os
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return script_dir
+    except:
+        script_dir_2 = os.getcwd()
+        return script_dir_2
+
+LNK = dir_link()
+
 # блок логирования
 import logging
-logging.basicConfig(level=logging.INFO, filename="//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/py_log.log",filemode="w", format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, filename=f"{LNK}/py_log.log",filemode="w", format="%(asctime)s %(levelname)s %(message)s")
 # https://habr.com/ru/companies/wunderfund/articles/683880/   - ссылка на статью логирования
 # filemode="a" дозапись "w" - перезапись
-logging.info("Запуск скрипта starter_kum.ipynb")
+logging.info("Запуск скрипта kum.ipynb")
 
 import pandas as pd
 import os
@@ -13,9 +26,6 @@ import msoffcrypto
 from datetime import datetime, date, timedelta
 
 # обязательно использовать версию openpyxl==3.0.10 (в версиях моложе возникает ошибка "Value must be either numerical or a string containing a wildcard" - если на файлах эксель есть некоторые фильтры в столбцах)
-
-pd.options.display.max_colwidth = 100 # увеличить максимальную ширину столбца
-pd.set_option('display.max_columns', None) # макс кол-во отображ столбц
 
 # блок импортов для обновления сводных
 import pythoncom
@@ -31,13 +41,69 @@ from email.mime.text import MIMEText
 from email.utils import formatdate
 from email import encoders
 
+
+from functools import wraps
+import time
+# декоратор для times-повторного выполнения функции при неудачном выполнении 
+def retry(times, sec_):
+    """_summary_
+
+    Args:
+        times (_type_): попыток
+        sec_ (_type_): секунд между попытками
+    """
+    def wrapper_fn(f):
+        @wraps(f)
+        def new_wrapper(*args,**kwargs):
+            for i in range(times):
+                try:
+                    print ('---ПОПЫТКА ЧТЕНИЯ ФАЙЛА ---- %s' % (i + 1))
+                    return f(*args,**kwargs)
+                except Exception as e:
+                    error = e
+                    print(time.sleep(sec_))
+            raise error
+        return new_wrapper
+    return wrapper_fn
+
+
+@retry(10, 5)
+def links_main(name_file, key):
+    """функция для работы с путями, ссылки, вводные данные хранятся в блокноте
+
+    Args:
+        name_file (_type_): имя файла
+        key (_type_): имя ключа
+
+    Returns:
+        _type_: _description_
+    """
+    try:
+        file = pd.read_csv(name_file, sep=':')
+        result = list(file[file['ключ']==key]['значение'])[0]
+        return result
+    except Exception as ex_:
+        print(f'ошибка функции {links_main.__name__} не удалось считать файл {name_file} или данные в нем {key} ошибка {ex_}')
+        
+        
 start_time_work_skript = time.time() ## точка отсчета времени
 logging.info(f"запуск точки отсчета времени: {start_time_work_skript}")
 
 # ссылка куда сохраняем
-link_save = r"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\kum"
+link_save = LNK
 print(f"Путь сохранения файлов: {link_save}")
 logging.info(f"Путь сохранения файлов: {link_save}")
+
+MY_EMAIL = links_main(f'{LNK}\links_main.txt','my_email')
+FILE_EMAIL = links_main(f'{LNK}\links_main.txt','file_email')
+SERVER = links_main(f'{LNK}\links_main.txt','server')
+PORT = int(links_main(f'{LNK}\links_main.txt','port'))
+USER_NAME = links_main(f'{LNK}\links_main.txt','username')
+LOG_FILE_LINK = links_main(f'{LNK}\links_main.txt','log_file_link')
+MAIN_DIREKTORY = links_main(f'{LNK}\links_main.txt','main_direktory')
+EMAIL_USERS_GO = links_main(f'{LNK}\links_main.txt','email_users_go')
+SAVE_FILE_1 = links_main(f'{LNK}\links_main.txt','result_svod_x')
+SAVE_FILE_2 = links_main(f'{LNK}\links_main.txt','result_svod')
 
 def time_wopking_skript(start):
     """функция определения время выполнения скрипта
@@ -58,15 +124,15 @@ def time_wopking_skript(start):
     except:
         logging.error(f"{time_wopking_skript.__name__} - ОШИБКА", exc_info=True)
         
-
-def open_file_links(link_ = r"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\kum\links_name_file.xlsx"):
+        
+def open_file_links(link_ = links_main(f'{LNK}\links_main.txt','main_file')):
     """Открывает файл со сссылками именами файлов паролями и именами листов  
     добавляет в этот файл время последнего сохранеия истояника данных - считывает по ссылке  
     убирает лишние столбцы   
     пересохраняет файл - чтоб сервер не удалил по сроку давности  
 
     Args:
-        link_ (regexp, optional): _description_. Defaults to r"\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\kum\links_name_file.xlsx".
+        link_ (regexp, optional): _description_. 
 
     Returns:
         _type_: _description_
@@ -80,12 +146,12 @@ def open_file_links(link_ = r"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\t
         links_name = links_name[['link', 'name', 'pass', 'kum_work_sheet', 'kum_not_work_sheet', 'time_update']]                                                # оставляем только нужные столбцы
         links_name['pass'] = links_name['pass'].fillna(0).astype(int)                                                   # преобразовываем столбец с паролями
         # пересохраняем чтоб обновилось время последненго сохранения и файл не исчез с сервера по сроку давности
-        links_name.to_excel(r"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\kum\links_name_file.xlsx")
+        links_name.to_excel(link_)
         return links_name
     except:
         logging.error(f"{open_file_links.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def testing_links(links):
     """Проверка ссылкок на файлы  
     
@@ -102,6 +168,7 @@ def testing_links(links):
     else:
         print(f"ОШИБКА - ", links)
         logging.error(f"{testing_links.__name__} ссылка не рабочая {links}", exc_info=True)
+        
         
 def search_region(x: str):
     """ищет регион в названии файла
@@ -125,6 +192,7 @@ def search_region(x: str):
             return "неизвестно"
     except:
         logging.error(f"{search_region.__name__} - ОШИБКА", exc_info=True)
+        
         
 def marka_replace(list_data: list, repl: list =['vved', 'varsh', 'arh','MSK', 'YAR', 'SAR', 'KUM', '2021', '2022', '2023', '2024', '2025', '2026']):
     """Функция сбора марок авто из названия файлов  
@@ -164,6 +232,7 @@ def marka_replace(list_data: list, repl: list =['vved', 'varsh', 'arh','MSK', 'Y
     except:
         logging.error(f"{marka_replace.__name__} - ОШИБКА", exc_info=True)
         
+        
 def append_dict_marka_auto(dict_update: dict, lst_mark_uniq: [list, set]) -> dict:
     """дополняет справчник маркой авто   
     по названию файла определяет какие марки авто в нем есть (не имеет отношения к ОВП)
@@ -179,10 +248,12 @@ def append_dict_marka_auto(dict_update: dict, lst_mark_uniq: [list, set]) -> dic
     
     try:
         for i in dict_update.items():
-            dict_update[i[0]]['marka'] = ', '.join([unic for unic in lst_mark_uniq if unic in i[0]] )
+           
+            dict_update[i[0]]['marka'] = ', '.join([name for name in i[0].split("_") if name in lst_mark_uniq])
         return dict_update
     except:
         logging.error(f"{append_dict_marka_auto.__name__} - ОШИБКА", exc_info=True)
+        
         
 def open_df_locked(link: str, password: str, lst_name = None):
     print('open_df_locked')
@@ -216,7 +287,7 @@ def open_df_locked(link: str, password: str, lst_name = None):
             return  df, sheet_names
     except:
         logging.error(f"{open_df_locked.__name__} - ОШИБКА", exc_info=True)
-     
+        
         
 def open_df_unlocked(link: str, lst_name = None):
     print('open_df_unlocked')
@@ -243,6 +314,7 @@ def open_df_unlocked(link: str, lst_name = None):
         
     except:
         logging.error(f"{open_df_unlocked.__name__} - ОШИБКА", exc_info=True)
+        
         
 def open_dataframe(link, password='0', lst_name = None):
     print('open_dataframe')
@@ -346,7 +418,7 @@ def rename_columns_individual(df, spravka_ind: dict):
     except:
         logging.error(f"{rename_columns_individual.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def df_white_list_col(df, white_list_columns: list):
     """оставляет в df Только те столбцы которые есть в блоем списке  
     если в df нет столбцов из белого списка они будут добавлены (нужно для беспроблемной конкатенации - чтоб все было одинаково)  
@@ -372,7 +444,7 @@ def df_white_list_col(df, white_list_columns: list):
     except:
         logging.error(f"{df_white_list_col.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def df_white_list_col_OVP(df, white_list_columns_individual: list, white_list_columns: list):
     """оставляет в df Только те столбцы которые есть в блоем списке   
     если в df нет столбцов из белого списка они будут добавлены (нужно для беспроблемной конкатенации - чтоб все было одинаково)  
@@ -391,7 +463,7 @@ def df_white_list_col_OVP(df, white_list_columns_individual: list, white_list_co
         df = df[[i for i in df.columns if i in white_list_columns_individual]]
         # подгоняем названия столбцов как у всех
         df = df.rename(columns={'доход_авто_кум':'итого ам доход', 'доход_до_кум':'до доход','доход_фу_кум':'доход финуслуги',
-                                'итого_кум':'кум доход итого', 'примечание':'форма оплаты', 'менеджер (продал)':'продавец'})
+                                'итого_кум':'кум доход итого', 'примечание':'форма оплаты', 'менеджер (продал)':'продавец'}) 
         
         #спсок колонок которые есть в белом списке и если их нет в df - они будут добавлены
         add_columns = [i for i in white_list_columns if i not in df.columns]
@@ -402,7 +474,7 @@ def df_white_list_col_OVP(df, white_list_columns_individual: list, white_list_co
     except:
         logging.error(f"{df_white_list_col_OVP.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def df_white_list_col_H_B_U_v_MSK(df, white_list_columns_individual: list, white_list_columns: list):
     """оставляет в df Только те столбцы которые есть в блоем списке   
     если в df нет столбцов из белого списка они будут добавлены (нужно для беспроблемной конкатенации - чтоб все было одинаково)  
@@ -432,7 +504,7 @@ def df_white_list_col_H_B_U_v_MSK(df, white_list_columns_individual: list, white
     except:
         logging.error(f"{df_white_list_col_H_B_U_v_MSK.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def name_df_columns_and_marka(df, name_df:str, marka_auto:str, lst_name_istochnik:str, region_ist:str):
     """функция добавляет в df столбцы с именем источника и маркой - которые подаются
 
@@ -479,7 +551,7 @@ def conversorrrrrr_date(df, name_date_columns:str):
     except:
         logging.error(f"{conversorrrrrr_date.__name__} - ОШИБКА", exc_info=True)
         
-
+        
 def conversion_columns_integer(df, columns:list):
     """преобразует чиловые значения в один формат int   
 
@@ -523,16 +595,14 @@ def form_pay(x):
                 counter+=1
         if counter != 0:
             return 'кредит'
-        
         elif 'б/н' in x or 'безнал' in x:
             return 'нал'
-        
         else:
             return 'нал'
     except:
         logging.error(f"{form_pay.__name__} - ОШИБКА", exc_info=True)
         
-
+    
 def reg_test(rg, podr):
     """функция находит YAR и проверяет есть ли там RYB
 
@@ -546,17 +616,16 @@ def reg_test(rg, podr):
     
     try:
         if rg == 'YAR':
-            if 'яр' in podr.lower():
+            if 'яр' in str(podr).lower():
                 return 'YAR'
-            elif 'рыб' in podr.lower():
+            elif 'рыб' in str(podr).lower():
                 return 'RYB'
             else:
                 return rg
         else:
             return rg
     except:
-        logging.error(f"{reg_test.__name__} - ОШИБКА", exc_info=True)
-        
+        logging.error(f"{reg_test.__name__} - ОШИБКА", exc_info=True)    
 
 def raspred_salon_marki(marki, salon, model, region):
     """функция для определения автоцентра по 4 входящим параметрам  
@@ -628,6 +697,7 @@ def korp_rozn(x):
     except:
         logging.error(f"{korp_rozn.__name__} - ОШИБКА", exc_info=True)
         
+        
 # считываем актуальный пароль 
 def my_pass():
     """функция считывания пароля
@@ -638,15 +708,13 @@ def my_pass():
     logging.info(f"{my_pass.__name__} - ЗАПУСК")
     
     try:
-        with open(f'//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/temp_/password_email.txt', 'r') as actual_pass:
+        with open(links_main(f'{LNK}\links_main.txt','pass'), 'r') as actual_pass:
             return actual_pass.read()
         
     except:
         logging.error(f"{my_pass.__name__} - ОШИБКА", exc_info=True)
         
-
-
-# письмо если нет ошибок
+        
 def send_mail(send_to:list):
     """рассылка почты
 
@@ -656,14 +724,14 @@ def send_mail(send_to:list):
     logging.info(f"{send_mail.__name__} - ЗАПУСК")
     
     try:
-        send_from = 'skrutko@sim-auto.ru'                                                                
+        send_from = MY_EMAIL                                                               
         subject = f"КУМ на {(datetime.now()-timedelta(1)).strftime('%d-%m-%Y')}"                                                                 
-        text = f"Здравствуйте\nВо вложении КУМ на {(datetime.now()- timedelta(1)).strftime('%d-%m-%Y')}"                                                                      
-        files = "//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/КУМ_ОБЩИЙ.xlsx"  
-        server = "server-vm36.SIM.LOCAL"
-        port = 587
-        username='skrutko'
-        password=my_pass()
+        text = f"Здравствуйте\nВо вложении СВОД КУМ на {(datetime.now()- timedelta(1)).strftime('%d-%m-%Y')}"                                                                      
+        files = FILE_EMAIL
+        server = SERVER
+        port = PORT
+        username = USER_NAME
+        password = my_pass()
         isTls=True
         
         msg = MIMEMultipart()
@@ -687,11 +755,10 @@ def send_mail(send_to:list):
         smtp.quit()
         logging.info(f"{send_mail.__name__} - ВЫПОЛНЕНО")
         logging.info(f"Адреса рассылки {send_to}")
-    except:
+    except Exception as ex_:
+        print(ex_)
         logging.error(f"{send_mail.__name__} - ОШИБКА", exc_info=True)
-    
-
-# письмо если есть ошибки
+        
 def send_mail_danger(send_to:list):
     """расслыка почты если ошибка
 
@@ -701,14 +768,14 @@ def send_mail_danger(send_to:list):
     logging.info(f"{send_mail_danger.__name__} - ЗАПУСК")
     
     try:                                                                                       
-        send_from = 'skrutko@sim-auto.ru'                                                                
-        subject =  f"проверьте исходники {'//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum'}"                                                                  
-        text = f"проверьте исходники {'//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum'}"                                                                      
-        files = '//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/py_log.log'  
-        server = "server-vm36.SIM.LOCAL"
-        port = 587
-        username='skrutko'
-        password=my_pass()
+        send_from = MY_EMAIL                                                               
+        subject =  f"проверьте исходники {MAIN_DIREKTORY}"                                                                  
+        text = f"проверьте исходники {MAIN_DIREKTORY}"                                                                      
+        files = LOG_FILE_LINK
+        server = SERVER
+        port = PORT
+        username = USER_NAME
+        password = my_pass()
         isTls=True
         
         msg = MIMEMultipart()
@@ -736,7 +803,7 @@ def send_mail_danger(send_to:list):
         logging.error(f"{send_mail_danger.__name__} - ОШИБКА", exc_info=True)
         
 
-def detected_danger(filename_log = "//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/py_log.log"):
+def detected_danger(filename_log = LOG_FILE_LINK):
     """обнаружение ошибок в логах   
     ищет 'warning'
 
@@ -752,12 +819,11 @@ def detected_danger(filename_log = "//sim.local/data/Varsh/OFFICE/CAGROUP/run_py
         logging.error(f"{detected_danger.__name__} - ОШИБКА", exc_info=True)
         
         
-        
-def read_email_adress(mail = fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\kum\Список_адресатов.xlsx'):
+def read_email_adress(mail = EMAIL_USERS_GO):
     """Функция считывания адресатов для рассылки
 
     Args:
-        mail (_type_, optional): _description_. Defaults to fr'\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\temp_\Список_адресатов.xlsx'.
+        mail (_type_, optional): _description_.
 
     Returns:
         _type_: возфращает строку со списком email
@@ -788,8 +854,6 @@ def sending_mail(lst_email, lst_email_error):
         logging.error(f"{sending_mail.__name__} - ОШИБКА", exc_info=True)
         
         
-# открываем файл со ссылками (на источники КУМЫ)
-# считываем данные пересохраняем файл для невозможности удаления сервером
 links_name = open_file_links()
 logging.info(f"открываем файл со ссылками (на источники КУМЫ) / считываем данные пересохраняем файл для невозможности удаления сервером")
 
@@ -797,7 +861,6 @@ print('Тестирвоание ссылок')
 logging.info(f"Тестирвоание ссылок")
 for i in range(links_name.shape[0]):
     testing_links(links_name['link'].iloc[i])
-    
     
 
 # копируем файлы и сохраняем в новой директории под новыми именами
@@ -832,32 +895,34 @@ for i in range(links_name.shape[0]):
 logging.info(f"Собираем уникальные марки")
 unique_marki = marka_replace(list_marki)
 
-# дополняем / обновляем словарь разделом марка
 logging.info(f"дополняем / обновляем словарь разделом марка")
 dict_link_name = append_dict_marka_auto(dict_link_name, unique_marki)
-
 
 
 class Manufactory_df:
     
     # список столбцов для переименования в единый стиль названий
-    dict_rename_columns = {'форма оплаты': ['форма оплаты', 'б/н / нал', 'кре/нал', 'кредит / нал'],
+    dict_rename_columns = {'форма оплаты': ['форма оплаты', 'б/н / нал', 'кре/нал', 'кредит / нал', 'кр/нал'],
                         'салон': ['салон', 'марка'],
                         'доход пргм привилегий': ['доход_пргр_прив_кум', 'дох_прог_прев'],
-                        'продавец':['продавец', 'Продавец', 'менеджер', 'менеджер (продал)'],
+                        'продавец':['продавец', 'Продавец', 'менеджер'], # , 'менеджер (продал)
                         'доход трейдин':['доход трейдин', 'доход trade in']}
     
     # названия столбцов которые оставляем кроме ОВП и ХЕНДЭ_БАИК_МСК
-    white_list_columns = ['дата выдачи', 'модель', 'vin', 'клиент', 'итого ам доход', 'до доход', 'доход финуслуги', 'доход трейдин', 'доход next', 'кум доход итого','форма оплаты', 'доход пргм привилегий', 'салон', 'продавец']
+    white_list_columns = ['дата выдачи', 'модель', 'vin', 'клиент', 'итого ам доход', 'до доход', 'доход финуслуги', 'доход трейдин', 
+                          'доход next', 'кум доход итого','форма оплаты', 'доход пргм привилегий', 'салон', 'продавец']
     
     # названия столбцов которые оставляем ОВП
-    white_list_columns_ovp = ['дата выдачи', 'модель', 'vin', 'клиент', 'доход_авто_кум', 'доход_до_кум', 'доход_фу_кум', 'итого_кум', 'примечание', 'доход пргм привилегий', 'менеджер (продал)']
+    white_list_columns_ovp = ['дата выдачи', 'модель', 'vin', 'клиент', 'доход_авто_кум', 'доход_до_кум', 
+                              'доход_фу_кум', 'итого_кум', 'примечание', 'доход пргм привилегий', 'менеджер (продал)']
     
     # названия столбцов которые оставляем HYUNDAI_BAIC_UKA_varsh_MSK
-    white_list_columns_ovp_HYUNDAI_BAIC_UKA_varsh_MSK = ['дата выдачи клиенту', 'модель', 'vin', 'покупатель', 'доход_ам_бонус', 'доход_до', 'перечисления_от_окис', '№25р дох трейд-ин', 'итого_кум', 'продавец', 'нал/кредит', 'марка_', 'доход пргм привилегий']
+    white_list_columns_ovp_HYUNDAI_BAIC_UKA_varsh_MSK = ['дата выдачи клиенту', 'модель', 'vin', 'покупатель', 'доход_ам_бонус', 
+                                                         'доход_до', 'перечисления_от_окис', '№25р дох трейд-ин', 'итого_кум', 'продавец', 
+                                                         'нал/кредит', 'марка_', 'доход пргм привилегий']
     
     # список тех, кто будет обрабатываться не так как все / их кумулятив значительно отличается от большинства
-    list_individual_treatment = ['KUM_HYUNDAI_BAIC_UKA_varsh_MSK', 'KUM_OVP_vved_MSK']
+    list_individual_treatment = ['KUM_HYUNDAI_BAIC_UKA_varsh_MSK', 'KUM_OVP_vved_MSK', 'KUM_OVP_SAR', 'KUM_OVP_YAR']
     
     def __init__(self, name, link, password, region, kum_work_sheet, kum_not_work_sheet, marka, flag = True):
         """_summary_
@@ -940,6 +1005,25 @@ class Manufactory_df:
             self.df = df_white_list_col_OVP(self.df, Manufactory_df.white_list_columns_ovp,  Manufactory_df.white_list_columns)                 # оставляем нужные столбцы и добавляем если нет столбцов из white_list_columns
             self.df = name_df_columns_and_marka(self.df, self.name, self.marka, self.kum_work_sheet[0], self.region)       # добавляем столбцы с имененм источника и маркой которая есть в названии источника и именем листа
             
+        elif self.name == 'KUM_OVP_SAR':
+            logging.info(f"обработка листа {self.kum_work_sheet[0]}")
+            self.df, self.sheet_names = open_dataframe(self.link, self.password, self.kum_work_sheet[0])    # открываем предварительное открытие считать все листы
+            self.df = predobrabotka_df(self.df)                                                             # находим шапку
+            self.df = head_registr_low_strip(self.df)                                                       # шапку в нижний регистр
+            self.df = rename_columns_individual(self.df, Manufactory_df.dict_rename_columns)                # переименовываем столбцы в единый стиль
+            self.df = df_white_list_col_OVP(self.df, Manufactory_df.white_list_columns_ovp,  Manufactory_df.white_list_columns)                 # оставляем нужные столбцы и добавляем если нет столбцов из white_list_columns
+            self.df = name_df_columns_and_marka(self.df, self.name, self.marka, self.kum_work_sheet[0], self.region)       # добавляем столбцы с имененм источника и маркой которая есть в названии источника и именем листа
+            
+        elif self.name == 'KUM_OVP_YAR':
+            logging.info(f"обработка листа {self.kum_work_sheet[0]}")
+            self.df, self.sheet_names = open_dataframe(self.link, self.password, self.kum_work_sheet[0])    # открываем предварительное открытие считать все листы
+            self.df = predobrabotka_df(self.df)                                                             # находим шапку
+            self.df = head_registr_low_strip(self.df)                                                       # шапку в нижний регистр
+            self.df = rename_columns_individual(self.df, Manufactory_df.dict_rename_columns)                # переименовываем столбцы в единый стиль
+            self.df = df_white_list_col_OVP(self.df, Manufactory_df.white_list_columns_ovp,  Manufactory_df.white_list_columns)                 # оставляем нужные столбцы и добавляем если нет столбцов из white_list_columns
+            self.df = name_df_columns_and_marka(self.df, self.name, self.marka, self.kum_work_sheet[0], self.region)       # добавляем столбцы с имененм источника и маркой которая есть в названии источника и именем листа
+                
+            
         # написать для хендай баик москва
         elif self.name == 'KUM_HYUNDAI_BAIC_UKA_varsh_MSK':
             logging.info(f"обработка листа {self.kum_work_sheet[0]}")
@@ -958,6 +1042,7 @@ class Manufactory_df:
             self.manufactory()
             
     
+
 catalog_manufactory_df = {} # справочник с объектами класса
 logging.info(f"заполняем справочник объектами класса")
 
@@ -977,10 +1062,11 @@ frames_kum = [catalog_manufactory_df[i].df for i in catalog_manufactory_df.keys(
 logging.info(f"конкатинируем в один df")
 result_svod = pd.concat(frames_kum)
 
+result_svod.to_excel(SAVE_FILE_1)
+
 logging.info(f"создаем копию df")
 result_svod_pred = result_svod.copy()
 
-# очищаем df от мусора
 logging.info(f"очищаем df от мусора")
 result_svod_pred = result_svod_pred[(result_svod_pred['vin'].notna()) 
                                     & (result_svod_pred['дата выдачи'].notna()) 
@@ -992,49 +1078,43 @@ result_svod_pred = result_svod_pred[(result_svod_pred['vin'].notna())
                                     & (result_svod_pred['vin'].apply(lambda x: str(x) != '00:00:00'))
                                     & (result_svod_pred['дата выдачи'].apply(lambda x: str(x) != '00:00:00'))]
 
-# приводим столбец с датами к общему формату
 logging.info(f"приводим столбец с датами к общему формату")
 result_svod_pred = conversorrrrrr_date(result_svod_pred, 'дата выдачи')
-
-# столбцы с числовыми значениями к одному формату данных 
 logging.info(f"приводим столбцы с числовыми значениями к одному формату данных")
-result_svod_pred = conversion_columns_integer(result_svod_pred, ['итого ам доход', 'до доход', 'доход финуслуги', 'доход трейдин', 'кум доход итого', 'доход next', 'доход пргм привилегий'])
-
-# распеределяем нал/кредит
+result_svod_pred = conversion_columns_integer(result_svod_pred, ['итого ам доход', 'до доход', 
+                                                                 'доход финуслуги', 'доход трейдин', 
+                                                                 'кум доход итого', 'доход next', 
+                                                                 'доход пргм привилегий'])
 logging.info(f"распеределяем нал/кредит - применение функции lambda & form_pay")
 result_svod_pred['форма оплаты'] = result_svod_pred['форма оплаты'].apply(lambda x: 'нал' if str(x).isdigit() == True else form_pay(x))
-
-# заменим Nan для дальнейших действий
 logging.info(f"заменим Nan на - неизвестно")
 result_svod_pred['салон'] = result_svod_pred['салон'].fillna('неизвестно')
-
-# отделим Рыбинск из Ярославля
 logging.info(f"отделим Рыбинск из Ярославля - применение функции lambda & reg_test")
 result_svod_pred['регион'] = result_svod_pred.apply(lambda x: reg_test(x.регион, x.салон), axis=1)
-
 logging.info(f"отделим автоцентры - добавим столбец - применение функции raspred_salon_marki")
 result_svod_pred['автоцентр'] = result_svod_pred.apply(lambda x: raspred_salon_marki(x.марки_бд, x.салон, x.модель, x.регион), axis=1)
-
 logging.info(f"объединим доход трейдин + доход next")
 result_svod_pred['доход трейдин'] = result_svod_pred['доход трейдин'] + result_svod_pred['доход next']
 logging.info(f"столбец - доход next - удалим")
 del result_svod_pred['доход next']
-
 logging.info(f"добавим столбцы - ти_факт_ам (дох трейд не равно 0) и факт_ам (просто 1 так как данные очищены)")
 result_svod_pred['ти_факт_ам'] = result_svod_pred['доход трейдин'].apply(lambda x: 1 if int(x) != 0 else 0)
 result_svod_pred['факт_ам'] = 1
-
 logging.info(f"добавим столбец - корп_розн - применение функции lambda & korp_rozn")
 result_svod_pred['корп_розн'] = result_svod_pred['клиент'].apply(lambda x: korp_rozn(x))
 
-logging.info(f"сохраняем файл - //sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/result_svod.xlsx")
-result_svod_pred.to_excel('//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/result_svod.xlsx')
+logging.info(f"сохраняем файл - {SAVE_FILE_2}")
+result_svod_pred.to_excel(SAVE_FILE_2)
+
+# Удаляем все дублированные строки так как кия переносит декабрь прошлого года в текущий перед январем
+df_no_duplicates = result_svod_pred.drop_duplicates(subset=['vin', 'дата выдачи', 'клиент', 'продавец', 'кум доход итого'])  # С использованием keep=False дубликаты не сохраняются!
+df_no_duplicates.to_excel(SAVE_FILE_2)
 
 # Обновляем сводные таблицы
 logging.info(f"Обновляем сводные таблицы")
 try:
     xlapp = win32com.client.DispatchEx("Excel.Application")
-    wb = xlapp.Workbooks.Open("//sim.local/data/Varsh/OFFICE/CAGROUP/run_python/task_scheduler/kum/КУМ_ОБЩИЙ.xlsx")
+    wb = xlapp.Workbooks.Open(FILE_EMAIL)
     wb.Application.AskToUpdateLinks = False   # разрешает автоматическое  обновление связей (файл - парметры - дополнительно - общие - убирает галку запрашивать об обновлениях связей)
     wb.Application.DisplayAlerts = True  # отображает панель обновления иногда из-за перекрестного открытия предлагает ручной выбор обновления True - показать панель
     wb.RefreshAll()
@@ -1052,18 +1132,15 @@ try:
 except:
     logging.error(f"ОШИБКА", exc_info=True)
     
-
+time_wopking_skript(start_time_work_skript)
+logging.info(f"время выполнения скрипта {time_wopking_skript(start_time_work_skript)}")
+    
 # список с адресами рассылки
-lst_email = read_email_adress() # 'skrutko@sim-auto.ru'
-lst_email_error = ['skrutko@sim-auto.ru'] # есть ошибки
+lst_email = read_email_adress() # [MY_EMAIL] or read_email_adress()
+lst_email_error = [MY_EMAIL] # есть ошибки
 
 # запуск функции рассылки почты
 logging.info(f"детектим ошибки, проверяем почту")
 sending_mail(lst_email, lst_email_error)
 logging.info(f"почта отправлена")
-
-time_wopking_skript(start_time_work_skript)
-logging.info(f"время выполнения скрипта {time_wopking_skript(start_time_work_skript)}")
-
-
 
